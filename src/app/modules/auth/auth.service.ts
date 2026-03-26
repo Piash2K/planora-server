@@ -1,5 +1,7 @@
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { prisma } from '../../lib/prisma';
+import { envVars } from '../../../config/env';
 
 type TRegisterPayload = {
 	name: string;
@@ -8,7 +10,12 @@ type TRegisterPayload = {
 	password: string;
 };
 
-const createUserIntoDB = async (payload: TRegisterPayload) => {
+type TLoginPayload = {
+	email: string;
+	password: string;
+};
+
+const createUser = async (payload: TRegisterPayload) => {
 	// Basic validation
 	if (!payload.email || !payload.password || !payload.name) {
 		throw new Error('Name, email, and password are required');
@@ -49,8 +56,51 @@ const createUserIntoDB = async (payload: TRegisterPayload) => {
 	return rest;
 };
 
-const register = createUserIntoDB;
+
+const loginUser = async (payload: TLoginPayload) => {
+	const { email, password } = payload;
+
+	if (!email || !password) {
+		throw new Error('Email and password are required');
+	}
+
+	const user = await prisma.user.findUnique({
+		where: { email },
+		select: {
+			id: true,
+			name: true,
+			email: true,
+			password: true,
+			role: true,
+			createdAt: true,
+			updatedAt: true,
+		},
+	});
+
+	if (!user) {
+		throw new Error('Invalid email or password');
+	}
+
+	const isPasswordValid = await bcrypt.compare(password, user.password);
+	if (!isPasswordValid) {
+		throw new Error('Invalid email or password');
+	}
+
+	const token = jwt.sign(
+		{ id: user.id, email: user.email, role: user.role },
+		envVars.JWT_SECRET_KEY,
+		{ expiresIn: '7d' },
+	);
+
+	const { password: _, ...userWithoutPassword } = user;
+
+	return {
+		token,
+		user: userWithoutPassword,
+	};
+};
 
 export const AuthServices = {
-	register,
+	createUser,
+	loginUser,
 };
